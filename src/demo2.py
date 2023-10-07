@@ -8,11 +8,14 @@ Demo 2: additional features
 
 Same as Demo 1, but with additional features enabled:
 - amplitude: here we set this parameter to 0, making the result a smooth grid.
-- raised_corners: we indicate that the top left corner should be elevated.
+- slope: we indicate that the top left corner should be elevated.
 """
 
 
-z = generate(amplitude=0, raised_corners=np.array([[True, False], [False, False]]))
+z = generate(
+    random=0,
+    slope=np.array([[True, False], [False, False]])
+)
 mh, mw = z.shape
 x, y = np.meshgrid(np.arange(0, mw), np.arange(0, mh))
 plt.figure(figsize=(4, 4))

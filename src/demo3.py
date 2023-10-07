@@ -8,20 +8,23 @@ Demo 3
 """
 
 
-z = generate(
-    scale=8,
-    amplitude=1.0,
-    smoothness=0.5,
-    raised_corners=np.array([[False, True], [True, False]]),
-    final_blur=2.0,
-)
-mh, mw = z.shape
-x, y = np.meshgrid(np.arange(0, mw), np.arange(0, mh))
-plt.figure(figsize=(4, 4))
-cs = plt.contour(x, y, z, levels=4)
-plt.title(f"Height map ({mw}x{mh}), min: {np.min(z):2.2f}, max: {np.max(z):2.2f}")
-plt.clabel(cs, inline=True, fontsize=12)
-plt.imshow(z, cmap="terrain")
-plt.xlabel("x")
-plt.ylabel("y")
+fig, axes = plt.subplots(3, 3, figsize=(9, 9))
+
+for i, random in enumerate([0.0, 0.5, 1.0]):
+    for j, smoothness in enumerate([-1.0, 1.0, 3.0]):
+        z = generate(
+            scale=8,
+            random=random,
+            smoothness=smoothness,
+            slope=np.array([[False, True], [True, False]]),
+        )
+        mh, mw = z.shape
+        x, y = np.meshgrid(np.arange(0, mw), np.arange(0, mh))
+        axes[i, j].set_title(f"rnd: {random:2.1f}, smooth: {smoothness:2.1f}")
+        cs = axes[i, j].contour(x, y, z)
+        axes[i, j].clabel(cs, inline=True, fontsize=12)
+        axes[i, j].imshow(z, cmap="terrain", vmin=-32, vmax=2**8 + 32)
+        axes[i, j].xaxis.set_visible(False)
+        axes[i, j].yaxis.set_visible(False)
+
 plt.show()

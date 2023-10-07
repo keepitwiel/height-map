@@ -3,90 +3,87 @@ from numba import njit
 from scipy.ndimage import gaussian_filter
 
 
-#@njit
+@njit
 def diamond_square(
         scale: int,
-        amplitude: float,
         smoothness: float,
         random_seed: int,
-        raised_corners: np.ndarray = np.array([[False, False], [False, False]]),
 ) -> np.ndarray:
     """
     Creates a square grid where the values are determined by the diamond/square algorithm.
 
     :param scale: grid scale. the grid size (n) is determined by 2**scale + 1.
         So, if scale=5, then n=2**5 + 1 = 33.
-    :param amplitude: amplitude of the randomness. If 0, the grid values are a bilinear
-        interpolation of the initial corner values.
     :param smoothness: determines how quickly the noisiness of the values decreases
         for each consecutive step. The higher this value, the faster the noise decreases.
         If smoothness=0, the noise amplitude does not decrease.
     :param random_seed: random seed.
-    :param raised_corners: indicates if corner elements of the grid are raised, to create
-        a sloped terrain. If raised, the corner values are set to 2**p.
     :return: Numpy array.
     """
     np.random.seed(random_seed)
-    n = 2**scale + 1  # grid si
-    raised_corners = raised_corners * 2**scale
-
+    n = 2**scale + 1  # grid size
     z = np.zeros((n, n))
-    z[0, 0] = raised_corners[0, 0]
-    z[0, -1] = raised_corners[0, 1]
-    z[-1, 0] = raised_corners[1, 0]
-    z[-1, -1] = raised_corners[1, 1]
-
-    # z[0:-1:n//2, 0:-1:n//2] = raised_corners * 2**scale  # initialize corners
-
     for q in range(scale, 0, -1):
         d = 2**q  # step size
-        h = 2 ** (q - 1)  # half step
+        h = 2**(q-1)  # half step
+        size = 2**(scale-q) + 1
 
-        size = 1 + 2 ** (scale - q)
-
-        # random corners
-        r = np.random.normal(0, amplitude * d**smoothness, (size, size))
-
-        # add to grid
+        # add random corners to grid
+        r = np.random.normal(0, 2**(q - smoothness), (size, size))
         z[0::d, 0::d] += r
 
         # interpolate edges
-        z[h:n:d, 0:n:d] = 0.5 * z[0 : n - d : d, 0:n:d] + 0.5 * z[d:n:d, 0:n:d]
-        z[0:n:d, h:n:d] = 0.5 * z[0:n:d, 0 : n - d : d] + 0.5 * z[0:n:d, d:n:d]
+        z[h:n:d, 0:n:d] = 0.5 * z[0:n-d:d, 0:n:d] + 0.5 * z[d:n:d, 0:n:d]
+        z[0:n:d, h:n:d] = 0.5 * z[0:n:d, 0:n-d:d] + 0.5 * z[0:n:d, d:n:d]
 
         # interpolate middle
         z[h:n:d, h:n:d] = 0.25 * (
-            z[0 : n - d : d, 0 : n - d : d]
-            + z[0 : n - d : d, d:n:d]
-            + z[d:n:d, 0 : n - d : d]
+            z[0:n-d:d, 0:n-d:d]
+            + z[0:n-d:d, d:n:d]
+            + z[d:n:d, 0:n-d:d]
             + z[d:n:d, d:n:d]
         )
-
     return z
+
+
+@njit
+def bilinear(slope, scale):
+    n = 2 ** scale
+    result = np.zeros((n + 1, n + 1))
+    for j in range(n + 1):
+        for i in range(n + 1):
+            x = i / n
+            y = j / n
+            result[j, i] = (
+                (1 - x) * (1 - y) * slope[0, 0]
+                + x * (1 - y) * slope[0, 1]
+                + (1 - x) * y * slope[1, 0]
+                + x * y * slope[1, 1]
+            )
+    return result * n
 
 
 def generate(
         scale: int = 6,
-        amplitude: float = 1,
-        raised_corners: np.ndarray = np.array([[False, False], [False, False]]),
+        random: float = 1.0,
+        slope: np.ndarray = np.array([[False, False], [False, False]]),
         random_seed: int = 42,
         smoothness: float = 0.6,
         final_blur: int = None,
 ):
     """
-    Generates a height map using the diamond/square algorithm.
+    Generates a height map using a linear combination between
+        the diamond/square algorithm and a slope.
 
-    If the specified map dimensions each are less than 2**p+1 (for integer p >= 0),
-    the output of the diamond/square algorithm will be cropped.
+    Optionally, a blur is applied to the output.
 
-    Optionally, a blurr is applied to the output.
-
+    :param slope: indicates if corner elements of the grid should be raised
+        to create a sloped terrain.
+    :param random: a number between 0 and 1. If 0, output will be wholly determined
+        by the slope parameter; if 1, there is no slope and output will be wholly
+        determined by the diamond/square algorithm.
     :param scale: grid scale. the grid size (n) is determined by 2**scale + 1.
         So, if scale=5, then n=2**5 + 1 = 33.
-    :param amplitude: amplitude of the randomness. If 0, the grid values are a bilinear
-        interpolation of the initial corner values.
-    :param raised_corners: indicates if corner elements of the grid should be raised
-        to create a sloped terrain.
     :param random_seed: random seed
     :param smoothness: determines noisiness of the grid.
         - high value => more noise but less "blocky"
@@ -94,7 +91,19 @@ def generate(
     :param final_blur: blur parameter to further smooth out noise
     :return: height map
     """
-    z = diamond_square(scale, amplitude, smoothness, random_seed, raised_corners)
+    try:
+        assert 0 <= random <= 1
+    except AssertionError:
+        print(f"'Random' parameter needs to be between 0 and 1. Value found: {random}")
+    if random == 0:
+        z = bilinear(slope, scale)
+    elif 0 < random < 1:
+        z_ = bilinear(slope, scale)
+        ds = diamond_square(scale, smoothness, random_seed)
+        z = random * ds + (1 - random) * z_
+    else:
+        z = diamond_square(scale, smoothness, random_seed)
+
     if final_blur:
         z = gaussian_filter(z, sigma=final_blur)
 
